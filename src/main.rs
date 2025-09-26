@@ -1,0 +1,127 @@
+mod utils;
+use crate::utils::{
+    PlatformOrDevice,
+    fuzzy_find_platform,
+    user_select_platform_or_device,
+    user_get_and_select_all_devices
+};
+use dotenv::dotenv;
+use std::env;
+use std::path::Path;
+use inquire::Text;
+use cl3::device::{cl_device_id, get_device_info, CL_DEVICE_NAME};
+use cl3::info_type::InfoType;
+use std::ffi::c_void;
+
+/// read .env file for platform and device 
+/// if not found then platform is blank String, and device is a null pointer
+fn init_env_vars() -> (String, cl_device_id) {
+    //init variables to be returned
+    let mut platform_name_fuzzy_env: String = String::from("");
+    let mut device_uuid_env: cl_device_id = std::ptr::null_mut();
+    // if ./.env exists, load it
+    if Path::new(".env").exists() {
+        dotenv().ok(); // read .env file
+        // assign the env vars, return a Result for both
+        let platform_name_fuzzy_env_res = env::var("PLATFORM_NAME_FUZZY_ENV");
+        let device_uuid_env_res = env::var("DEVICE_UUID_ENV");
+        
+        match platform_name_fuzzy_env_res {
+            Ok(val) => { 
+                println!("PLATFORM_NAME_FUZZY_ENV: {:?}", val);
+                platform_name_fuzzy_env = val;
+            },
+            Err(e) => {
+                println!("Error PLATFORM_NAME_FUZZY_ENV: {}", e);
+            }
+        }
+
+        match device_uuid_env_res {
+            Ok(val) => { 
+                println!("DEVICE_UUID_ENV: {:?}", val);
+                device_uuid_env = &val as *const _ as *mut c_void;
+            },
+            Err(e) => {
+                println!("device ID not found ({}), proceeding to device selector", e);
+            } 
+        }
+
+    } else {
+        println!(".env not present, proceeding with prompt based selection ... ");
+        platform_name_fuzzy_env = match Text::new(
+            "What platform do you want to use (this is a fuzzy finder, 
+            i.e. you can just use a key word): ").prompt() {
+                Ok(text) => text,
+                Err(e) => {
+                    println!("There was an error with your response: {}", e);
+                    panic!()
+                }
+            }
+    }
+
+    (platform_name_fuzzy_env, device_uuid_env)
+}
+
+fn main() {
+
+    // Initialize Program Flow:
+    // (1) Prompt the user to either: 
+    //      (a) fuzzy find the platform by vendor name
+    //          (i) if only a single platform is found, use that
+    //          (ii) else: proceed to (b)
+    //      (b) list out all of the plaforms available, and let the user choose which one
+    //      (c) use a .env file to automatically pick up the plaform and device (skip 2 & 3)
+    // (2) Prompt the user to choose a device out of the list of them from the platform
+    // (3) Ask if the user wants to save these settings to a .env file
+   
+    // initialize variables: either with .env, or with user prompt for user to enter for platform
+    let (platform_name_fuzzy_env, device_uuid_env) = init_env_vars();
+
+    // fuzzy find the plaform
+    let platform_vec: Vec<PlatformOrDevice> = fuzzy_find_platform(&platform_name_fuzzy_env, true);
+    let mut chosen_platform: PlatformOrDevice = match platform_vec.first(){
+        Some(platform) => platform.clone(),
+        None => {
+            println!("No platform found, this program will terminate in response.");
+            panic!()
+        }
+    };
+    // if only a single platform is found, use that, else ask the user to choose
+    if platform_vec.len() > 1 {
+        let q = "Multiple platforms with the same pattern were found, please choose one:";
+        let plat_or_dev = user_select_platform_or_device(q, platform_vec);
+        if let Ok(plat) = plat_or_dev {
+            chosen_platform = plat;
+        }
+    }
+    // confirm platform selection
+    if let PlatformOrDevice::Plat(platform_id, ref platform_name) = chosen_platform {
+        println!("You chose the platform: {:?} [id:{:?}]", platform_name, platform_id);
+    }
+
+    // get devices for the chosen platform
+    let chosen_device: PlatformOrDevice = if device_uuid_env.is_null() {
+        match user_get_and_select_all_devices(chosen_platform){
+            Ok(d) => d,
+            Err(err) => {
+                println!("Something went wrong with device selection: {:?}", err);
+                panic!();
+            }
+        }
+    } else {
+        let dev_name = String::from(
+            get_device_info(device_uuid_env, CL_DEVICE_NAME).unwrap_or(
+                InfoType::VecUchar("No Name".as_bytes().to_vec())
+            )
+        );
+        PlatformOrDevice::Dev(
+            device_uuid_env,
+            dev_name
+        )
+    };
+    // confirm device selection
+    if let PlatformOrDevice::Dev(device_id, device_name) = chosen_device {
+        println!("You chose the device: {:?} [id:{:?}]", device_name, device_id);
+    }
+   
+}
