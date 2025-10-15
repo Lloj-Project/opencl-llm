@@ -1,9 +1,13 @@
 mod utils;
-use crate::utils::{
+use crate::utils::platform_and_device::{
     PlatformOrDevice,
     fuzzy_find_platform,
     user_select_platform_or_device,
     user_get_and_select_all_devices
+};
+use crate::utils::context::{
+    create_context_rusty,
+    ContextProperties
 };
 use dotenv::dotenv;
 use std::env;
@@ -11,6 +15,7 @@ use std::path::Path;
 use inquire::Text;
 use cl3::device::{cl_device_id, get_device_info, CL_DEVICE_NAME};
 use cl3::info_type::InfoType;
+use cl3::context::{get_context_info, CL_CONTEXT_DEVICES};
 use std::ffi::c_void;
 
 /// read .env file for platform and device 
@@ -120,8 +125,29 @@ fn main() {
         )
     };
     // confirm device selection
+    let dev_id : cl_device_id;
     if let PlatformOrDevice::Dev(device_id, device_name) = chosen_device {
         println!("You chose the device: {:?} [id:{:?}]", device_name, device_id);
+        dev_id = device_id;
+    } else {
+        println!("no device found");
+        panic!(); //no device found
     }
-   
+
+    //to allow for potential multi select in the future, put the device in a Vec
+    let vec_devices = vec![dev_id];
+
+    //create context
+    let context_properties: Vec<ContextProperties> = vec![];
+    let ctx = create_context_rusty(&vec_devices[0..1], context_properties);
+
+    let ctx_info = match ctx {
+        Ok(c) => get_context_info(c, CL_CONTEXT_DEVICES),
+        Err(e) => {
+            println!("context error {e}");
+            panic!();
+        }
+    };
+    println!("{:?}", ctx_info);
+
 }

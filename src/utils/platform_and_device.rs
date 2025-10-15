@@ -9,6 +9,7 @@ use cl3::device::{cl_device_id,
 use cl3::info_type::InfoType;
 use cl3::command_queue::cl_int;
 use cl3::platform::{get_platform_info, CL_PLATFORM_NAME};
+use cl3::error_codes::error_text;
 use regex::RegexBuilder;
 use inquire::{error::InquireError, Select};
 use std::fmt;
@@ -38,12 +39,11 @@ pub fn fuzzy_find_platform(pattern: &String, list_platforms: bool) -> Vec<Platfo
         .case_insensitive(true)
         .build()
         .unwrap();
-    println!("{}", re);
     // get all platforms ids from OpenCL platform api
     let platform_vec = match cl3::platform::get_platform_ids(){
         Ok(vec) => vec,
         Err(error_code) => {
-            println!("Error in getting plaform IDs: {}", error_code);
+            println!("Error in getting plaform IDs: {}", error_text(error_code));
             panic!();
         }
     };
