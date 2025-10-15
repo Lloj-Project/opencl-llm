@@ -148,6 +148,6 @@ fn main() {
             panic!();
         }
     };
-    println!("{:?}", ctx_info);
+    println!("Context: {:?}", ctx_info.unwrap());
 
 }
