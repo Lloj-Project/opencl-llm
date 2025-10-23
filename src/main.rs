@@ -12,7 +12,11 @@ use crate::utils::context::{
 use cl3::device::{cl_device_id, get_device_info, CL_DEVICE_NAME};
 use cl3::info_type::InfoType;
 use cl3::context::{get_context_info, CL_CONTEXT_DEVICES};
-use cl3::program::create_program_with_source;
+use cl3::program::{create_program_with_source, 
+    get_program_build_info, 
+    CL_PROGRAM_BUILD_LOG,
+    build_program
+};
 use cl3::kernel::create_kernel;
 use dotenv::dotenv;
 use inquire::Text;
@@ -26,6 +30,7 @@ use std::{
     },
     fs,
     slice,
+    ptr
 };
 
 /// read .env file for platform and device 
@@ -163,12 +168,28 @@ fn main() {
     // create program for testing
     // read c code as a source string
     let c_source_string = fs::read_to_string("./src/kernels/matrix_addition.c").unwrap();
+    //let c_source_string = fs::read_to_string("./src/kernels/test.c").unwrap();
     let c_source_str = c_source_string.as_str();
     let c_source_kernel_arr = [c_source_str];
+    println!("=============================");
     println!("{:?}", &c_source_kernel_arr[0]);
+    println!("=============================");
     let c_kernel_slice: &[&str] = slice::from_ref(c_source_kernel_arr.first().unwrap());
     let prog = create_program_with_source(ctx.unwrap(), c_kernel_slice).unwrap();
-    println!("{:?}", prog);
+    println!("program: {:?}", prog);
+    let build_res = build_program(prog, &vec_devices[0..1], c"", None, ptr::null_mut());
+    match build_res {
+        Ok(_) => println!("program built successfully"),
+        Err(e) => {
+            println!("Error code: {:?}", e);
+            let info = get_program_build_info(
+                prog,
+                vec_devices[0],
+                CL_PROGRAM_BUILD_LOG
+            ).unwrap();
+            println!("logs: {}", String::from(info));
+        }
+    }
     let kernel = create_kernel(prog, c"matrix_addition");
     println!("{:?}", kernel);
 
