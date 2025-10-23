@@ -190,7 +190,7 @@ fn main() {
             println!("logs: {}", String::from(info));
         }
     }
-    let kernel = create_kernel(prog, c"matrix_addition");
+    let kernel = create_kernel(prog, c"matrix_addition").unwrap();
     println!("{:?}", kernel);
 
 
