@@ -18,6 +18,19 @@ use cl3::program::{create_program_with_source,
     build_program
 };
 use cl3::kernel::create_kernel;
+use cl3::memory::{
+    create_buffer,
+    CL_MEM_READ_ONLY,
+    CL_MEM_WRITE_ONLY,
+    release_mem_object
+};
+use cl3::command_queue::{
+    create_command_queue,
+    enqueue_write_buffer,
+    enqueue_read_buffer,
+    enqueue_nd_range_kernel,
+    release_command_queue
+};
 use dotenv::dotenv;
 use inquire::Text;
 use std::{
@@ -30,8 +43,10 @@ use std::{
     },
     fs,
     slice,
-    ptr
+    ptr,
+    cmp::max,
 };
+
 
 /// read .env file for platform and device 
 /// if not found then platform is blank String, and device is a null pointer
@@ -154,9 +169,10 @@ fn main() {
 
     //create context
     let context_properties: Vec<ContextProperties> = vec![];
-    let ctx = create_context_rusty(&vec_devices[0..1], context_properties);
+    let ctx_wrapped = create_context_rusty(&vec_devices[0..1], context_properties);
+    let ctx = ctx_wrapped.unwrap();
 
-    let ctx_info = match ctx {
+    let ctx_info = match ctx_wrapped {
         Ok(c) => get_context_info(c, CL_CONTEXT_DEVICES),
         Err(e) => {
             println!("context error {e}");
@@ -172,10 +188,10 @@ fn main() {
     let c_source_str = c_source_string.as_str();
     let c_source_kernel_arr = [c_source_str];
     println!("=============================");
-    println!("{:?}", &c_source_kernel_arr[0]);
+    println!("{}", &c_source_kernel_arr[0]);
     println!("=============================");
     let c_kernel_slice: &[&str] = slice::from_ref(c_source_kernel_arr.first().unwrap());
-    let prog = create_program_with_source(ctx.unwrap(), c_kernel_slice).unwrap();
+    let prog = create_program_with_source(ctx, c_kernel_slice).unwrap();
     println!("program: {:?}", prog);
     let build_res = build_program(prog, &vec_devices[0..1], c"", None, ptr::null_mut());
     match build_res {
@@ -191,7 +207,36 @@ fn main() {
         }
     }
     let kernel = create_kernel(prog, c"matrix_addition").unwrap();
-    println!("{:?}", kernel);
+    println!("kernel: {:?}", kernel);
 
+    let mut vec_a: Vec<i32> = vec![1, 2, 3, 4, 5];
+    let size_bytes_a = vec_a.len() * std::mem::size_of_val(&vec_a[0]);
+    let mut vec_b: Vec<i32> = vec![10;5];
+    let size_bytes_b = vec_b.len() * std::mem::size_of_val(&vec_b[0]);
+    let void_ptr_a: *mut c_void = vec_a.as_mut_ptr() as *mut c_void;
+    let void_ptr_b: *mut c_void = vec_b.as_mut_ptr() as *mut c_void;
+    let null_ptr: *mut c_void = ptr::null_mut();
+    let mut vec_res: Vec<i32> = Vec::new();
+    let void_ptr_res: *mut c_void = vec_res.as_mut_ptr() as *mut c_void;
+    unsafe {
+        let mem_a = create_buffer(ctx, CL_MEM_READ_ONLY, size_bytes_a, void_ptr_a);
+        let mem_b = create_buffer(ctx, CL_MEM_READ_ONLY, size_bytes_b, void_ptr_b);
+        let mem_res = create_buffer(ctx, CL_MEM_READ_ONLY, max(size_bytes_a, size_bytes_b), null_ptr);
 
+        let cq_wrapped = create_command_queue(ctx, vec_devices[0], 0u64);
+        let cq = cq_wrapped.unwrap();
+        let write_ev_1 = enqueue_write_buffer(cq, mem_a.unwrap(), 0, 0, size_bytes_a, void_ptr_a, 0, &null_ptr);
+        let write_ev_2 = enqueue_write_buffer(cq, mem_b.unwrap(), 0, 0, size_bytes_b, void_ptr_b, 0, &null_ptr);
+
+        let kernel_ev = enqueue_nd_range_kernel(cq, kernel, 1, &0, &max(size_bytes_a, size_bytes_b), &1, 0, &null_ptr);
+
+        let read_ev = enqueue_read_buffer(cq, mem_res.unwrap(), 0, 0, max(size_bytes_a, size_bytes_b), void_ptr_res, 0, &null_ptr);
+
+        let rel_res_a = release_mem_object(mem_a.unwrap());
+        let rel_res_b = release_mem_object(mem_b.unwrap());
+        let rel_res_res = release_mem_object(mem_res.unwrap());
+        let res_rel_cq = release_command_queue(cq);
+    }
+    
+    println!("output: {:?}", vec_res);
 }
